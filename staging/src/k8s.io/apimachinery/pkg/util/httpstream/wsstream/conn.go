@@ -18,6 +18,7 @@ package wsstream
 
 import (
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -34,6 +35,11 @@ import (
 )
 
 const WebSocketProtocolHeader = "Sec-Websocket-Protocol"
+
+// ErrWebSocketServerNotReady indicates the WebSocket server terminated before completing initialization.
+// This typically occurs during container lifecycle transitions when there's a race condition between
+// the server setup and client connection attempts.
+var ErrWebSocketServerNotReady = errors.New("websocket server finished before becoming ready")
 
 // The Websocket subprotocol "channel.k8s.io" prepends each binary message with a byte indicating
 // the channel number (zero indexed) the message was sent on. Messages in both directions should
@@ -240,7 +246,7 @@ func (conn *Conn) Open(w http.ResponseWriter, req *http.Request) (string, []io.R
 	case <-serveHTTPComplete:
 		// websocket server returned before completing initialization; cleanup and return error.
 		conn.closeNonThreadSafe() //nolint:errcheck
-		return "", nil, fmt.Errorf("websocket server finished before becoming ready")
+		return "", nil, ErrWebSocketServerNotReady
 	case p := <-panicChan:
 		panic(p)
 	}

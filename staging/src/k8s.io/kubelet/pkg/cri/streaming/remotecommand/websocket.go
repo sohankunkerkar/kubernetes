@@ -17,6 +17,7 @@ limitations under the License.
 package remotecommand
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"time"
@@ -24,6 +25,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/httpstream/wsstream"
 	"k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/apiserver/pkg/endpoints/responsewriter"
+	"k8s.io/klog/v2"
 )
 
 const (
@@ -97,7 +99,13 @@ func createWebSocketStreams(req *http.Request, w http.ResponseWriter, opts *Opti
 	conn.SetIdleTimeout(idleTimeout)
 	negotiatedProtocol, streams, err := conn.Open(responsewriter.GetOriginal(w), req)
 	if err != nil {
-		runtime.HandleError(fmt.Errorf("unable to upgrade websocket connection: %v", err))
+		if errors.Is(err, wsstream.ErrWebSocketServerNotReady) {
+			// Known transient race: server returned before completing initialization.
+			// Log at debug level to retain diagnostics without triggering error handlers.
+			klog.V(4).InfoS("WebSocket upgrade failed due to server race condition", "err", err)
+		} else {
+			runtime.HandleError(fmt.Errorf("unable to upgrade websocket connection: %w", err))
+		}
 		return nil, false
 	}
 
